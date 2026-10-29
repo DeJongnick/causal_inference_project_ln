@@ -1,0 +1,9 @@
+[project]
+name = "ira-chips-causal"
+version = "0.1.0"
+description = "IRA & CHIPS Act : effet causal sur l'investissement industriel américain (DiD, Synthetic Control)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "polars>=2.1.0",
+]
