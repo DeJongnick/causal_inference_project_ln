@@ -185,3 +185,57 @@ def plot_ranking(df: pl.DataFrame, name: str, value: str, n: int = 15, title: st
     fig.update_yaxes(autorange="reversed", showgrid=False)
     fig.update_layout(height=30 * n + 160, hovermode="closest")
     return _layout(fig, title, subtitle, None)
+
+
+def plot_event_study(es: pl.DataFrame, ref: tuple[date, date], transition: tuple[date, date], title: str | None = None,
+                     subtitle: str | None = None) -> go.Figure:
+    """Écart par trimestre (colonnes date, coef, trimestre) : avant en bleu nuit, transition en gris, après en orange.
+
+    Bandes grisées : la fenêtre de référence `ref` et la `transition`, toutes deux en (début, fin).
+    """
+    d = es.with_columns(pl.col("date").dt.offset_by("45d").alias("x"))  # point au milieu du trimestre
+    fig = go.Figure()
+    for (x0, x1), text, opacity in [(ref, "Référence", 0.06), (transition, "Transition", 0.12)]:
+        fig.add_vrect(x0=x0, x1=pl.Series([x1]).dt.offset_by("1mo")[0], fillcolor=NEUTRAL, opacity=opacity, line_width=0,
+                      annotation_text=text, annotation_position="top left", annotation_font=dict(size=11, color=MUTED))
+    fig.add_hline(y=0, line=dict(color=MUTED, width=1))
+    periods = [("Avant", pl.col("date") < transition[0], NEUTRAL),
+               ("Transition", pl.col("date").is_between(transition[0], transition[1], closed="left"), CONTROL),
+               ("Après", pl.col("date") >= transition[1], TREATED)]
+    for name, cond, color in periods:
+        p = d.filter(cond)
+        fig.add_scatter(x=p["x"], y=p["coef"], name=name, mode="markers", marker=dict(color=color, size=8),
+                        customdata=p["trimestre"], hovertemplate="%{customdata} : %{y:.2f}<extra></extra>")
+    _treatment(fig, x=TREATMENT_DATE)
+    fig.update_xaxes(dtick="M12", tickformat="%Y")
+    fig.update_layout(hovermode="closest")
+    return _layout(fig, title, subtitle, "Écart de log vs référence")
+
+
+def plot_placebos(placebos: pl.DataFrame, true: float, title: str | None = None, subtitle: str | None = None) -> go.Figure:
+    """δ placebo par fausse date (colonnes date, delta) en gris, vrai δ en ligne orange avec la part des placebos ≥ vrai δ."""
+    above = (placebos["delta"] >= true).sum()
+    fig = go.Figure()
+    fig.add_hline(y=0, line=dict(color=MUTED, width=1))
+    fig.add_scatter(x=placebos["date"], y=placebos["delta"], name="DiD placebo", mode="markers",
+                    marker=dict(color=CONTROL, size=7), hovertemplate="%{x|%m/%Y} : %{y:.2f}<extra></extra>")
+    fig.add_hline(y=true, line=dict(color=TREATED, width=3), annotation_text=(
+        f"Vrai δ = {true:.2f} · placebos ≥ vrai δ : {above} / {placebos.height}".replace(".", ",")),
+        annotation_position="top left", annotation_font=dict(color=TREATED, size=12))
+    fig.update_xaxes(dtick="M12", tickformat="%Y", title_text="Fausse date de traitement")
+    fig.update_layout(hovermode="closest", showlegend=False)
+    return _layout(fig, title, subtitle, "δ (écart de log)")
+
+
+def plot_specs(df: pl.DataFrame, name: str, value: str, highlight: str, title: str | None = None,
+               subtitle: str | None = None, xtitle: str | None = None) -> go.Figure:
+    """Une barre horizontale par spécification (valeurs en fraction, affichées en %), `highlight` en orange."""
+    fig = go.Figure(go.Bar(x=df[value], y=df[name], orientation="h",
+                           marker_color=[TREATED if c == highlight else CONTROL for c in df[name]],
+                           text=[f"{v:+.0%}".replace("%", " %") for v in df[value]], textposition="outside",
+                           hovertemplate="%{y} : %{x:.0%}<extra></extra>"))
+    fig.update_xaxes(tickmode="auto", tickformat=".0%", showgrid=True, title_text=xtitle,
+                     range=[0, df[value].max() * 1.18])
+    fig.update_yaxes(autorange="reversed", showgrid=False)
+    fig.update_layout(height=50 * df.height + 200, hovermode="closest")
+    return _layout(fig, title, subtitle, None)

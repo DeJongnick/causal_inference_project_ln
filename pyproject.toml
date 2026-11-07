@@ -9,6 +9,7 @@ dependencies = [
     "numpy>=2.5.4",
     "plotly>=7.1.0",
     "polars>=2.1.0",
+    "statsmodels>=0.15.0",
 ]
 
 [dependency-groups]
