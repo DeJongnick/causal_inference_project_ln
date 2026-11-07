@@ -10,3 +10,8 @@ dependencies = [
     "plotly>=7.1.0",
     "polars>=2.1.0",
 ]
+
+[dependency-groups]
+dev = [
+    "nbconvert>=7.17.2",
+]
