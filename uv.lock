@@ -191,6 +191,7 @@ dependencies = [
     { name = "numpy" },
     { name = "plotly" },
     { name = "polars" },
+    { name = "scipy" },
     { name = "statsmodels" },
 ]
 
@@ -205,6 +206,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.5.4" },
     { name = "plotly", specifier = ">=7.1.0" },
     { name = "polars", specifier = ">=2.1.0" },
+    { name = "scipy", specifier = ">=1.18.1" },
     { name = "statsmodels", specifier = ">=0.15.0" },
 ]
 

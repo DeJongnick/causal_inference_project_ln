@@ -1,8 +1,7 @@
-"""Fonctions plotly de l'EDA du projet IRA / CHIPS Act.
+"""Fonctions plotly du projet IRA / CHIPS Act.
 
-Toutes les séries sont ramenées à un point par année (`annual`), pour des graphes lisibles d'un coup d'œil.
-Chaque fonction prend un DataFrame polars au format large (une colonne date ou trimestre, une colonne par série)
-et renvoie une go.Figure.
+Les graphes de l'EDA ramènent les séries à un point par année (`annual`). Chaque fonction prend un DataFrame polars
+et renvoie une go.Figure, avec le même thème (`set_theme`).
 """
 
 from datetime import date
@@ -61,11 +60,7 @@ def label(col: str) -> str:
 
 
 def annual(df: pl.DataFrame, x: str, cols: list[str], how: str = "mean", base_year: int | None = None) -> pl.DataFrame:
-    """Un point par année : moyenne (niveaux, taux, indices) ou somme (flux trimestriels).
-
-    La colonne `partiel` signale une année incomplète ; en somme elle est retirée pour ne pas fausser le total.
-    `base_year` : chaque série en base 100 = cette année.
-    """
+    """Un point par année (moyenne ou somme), `partiel` pour une année incomplète, base 100 = `base_year` si donné."""
     d = to_date(df, x).with_columns(pl.col(x).dt.year().alias("année"))
     agg = pl.col(cols).mean() if how == "mean" else pl.col(cols).sum()
     d = d.group_by("année").agg(agg, pl.len().alias("n")).sort("année")
@@ -189,10 +184,7 @@ def plot_ranking(df: pl.DataFrame, name: str, value: str, n: int = 15, title: st
 
 def plot_event_study(es: pl.DataFrame, ref: tuple[date, date], transition: tuple[date, date], title: str | None = None,
                      subtitle: str | None = None) -> go.Figure:
-    """Écart par trimestre (colonnes date, coef, trimestre) : avant en bleu nuit, transition en gris, après en orange.
-
-    Bandes grisées : la fenêtre de référence `ref` et la `transition`, toutes deux en (début, fin).
-    """
+    """Event study par trimestre (avant, transition, après), avec bandes grisées pour `ref` et `transition`."""
     d = es.with_columns(pl.col("date").dt.offset_by("45d").alias("x"))  # point au milieu du trimestre
     fig = go.Figure()
     for (x0, x1), text, opacity in [(ref, "Référence", 0.06), (transition, "Transition", 0.12)]:
@@ -227,15 +219,47 @@ def plot_placebos(placebos: pl.DataFrame, true: float, title: str | None = None,
     return _layout(fig, title, subtitle, "δ (écart de log)")
 
 
-def plot_specs(df: pl.DataFrame, name: str, value: str, highlight: str, title: str | None = None,
+def plot_specs(df: pl.DataFrame, name: str, value: str, highlight: str, pct: bool = True, title: str | None = None,
                subtitle: str | None = None, xtitle: str | None = None) -> go.Figure:
-    """Une barre horizontale par spécification (valeurs en fraction, affichées en %), `highlight` en orange."""
+    """Une barre horizontale par spécification, `highlight` en orange, valeurs en % si `pct`, sinon en unités."""
+    fmt = (lambda v: f"{v:+.0%}".replace("%", " %")) if pct else (lambda v: f"{v:+.1f}".replace(".", ","))
     fig = go.Figure(go.Bar(x=df[value], y=df[name], orientation="h",
                            marker_color=[TREATED if c == highlight else CONTROL for c in df[name]],
-                           text=[f"{v:+.0%}".replace("%", " %") for v in df[value]], textposition="outside",
-                           hovertemplate="%{y} : %{x:.0%}<extra></extra>"))
-    fig.update_xaxes(tickmode="auto", tickformat=".0%", showgrid=True, title_text=xtitle,
-                     range=[0, df[value].max() * 1.18])
+                           text=[fmt(v) for v in df[value]], textposition="outside",
+                           hovertemplate="%{y} : %{x:" + (".0%" if pct else ".1f") + "}<extra></extra>"))
+    lo, hi = min(df[value].min(), 0), df[value].max()
+    fig.update_xaxes(tickmode="auto", tickformat=".0%" if pct else "", showgrid=True, title_text=xtitle,
+                     range=[lo - 0.18 * (hi - lo) if lo < 0 else 0, hi * 1.18])
+    fig.add_vline(x=0, line=dict(color=MUTED, width=1))
     fig.update_yaxes(autorange="reversed", showgrid=False)
     fig.update_layout(height=50 * df.height + 200, hovermode="closest")
     return _layout(fig, title, subtitle, None)
+
+
+def plot_synth(s: pl.DataFrame, treated: str = "USA", title: str | None = None, subtitle: str | None = None) -> go.Figure:
+    """Traité (orange) et jumeau synthétique (pointillé bleu nuit) par trimestre, colonnes quarter, traité, synthétique."""
+    fig = go.Figure()
+    for col, name, color, dash in [("synthétique", f"{treated} synthétique", NEUTRAL, "dash"), ("traité", treated, TREATED, None)]:
+        fig.add_scatter(x=s["quarter"], y=s[col], name=name, mode="lines", line=dict(color=color, width=2.5, dash=dash),
+                        hovertemplate=f"{name} : %{{y:.1f}}<extra></extra>")
+    _treatment(fig, x=TREATMENT_DATE)
+    fig.update_xaxes(dtick="M12", tickformat="%Y")
+    return _layout(fig, title, subtitle, "Base 100 = 2019")
+
+
+def plot_gaps(gaps: pl.DataFrame, treated: str = "USA", title: str | None = None, subtitle: str | None = None) -> go.Figure:
+    """Écart traité − synthétique par trimestre : traité en orange, placebos (colonne `pays`, si présente) en gris."""
+    if "pays" not in gaps.columns:
+        gaps = gaps.with_columns(pl.lit(treated).alias("pays"))
+    fig = go.Figure()
+    fig.add_hline(y=0, line=dict(color=MUTED, width=1))
+    for (c,), d in sorted(gaps.group_by("pays"), key=lambda g: g[0][0] == treated):
+        t = c == treated
+        fig.add_scatter(x=d["quarter"], y=d["écart"], name=treated if t else "Placebos", mode="lines",
+                        line=dict(color=TREATED if t else CONTROL, width=3 if t else 1), opacity=1 if t else 0.7,
+                        legendgroup=c if t else "placebos", showlegend=t or c == gaps["pays"].unique().sort()[0],
+                        hovertemplate=f"{c} : %{{y:.1f}}<extra></extra>")
+    _treatment(fig, x=TREATMENT_DATE)
+    fig.update_xaxes(dtick="M12", tickformat="%Y")
+    fig.update_layout(hovermode="closest")
+    return _layout(fig, title, subtitle, "Écart (points d'indice)")

@@ -1,4 +1,4 @@
-"""Difference-in-Differences entre secteurs (séance 3 du cours) sur le panel secteur × mois.
+"""Difference-in-Differences entre secteurs sur le panel secteur × mois.
 
 Toutes les fonctions prennent le panel long `did_panel_monthly` (data/processed/) : une ligne par secteur × mois.
 Le DiD compare une fenêtre `before` et une fenêtre `after` ; les mois entre les deux (la transition) sont exclus.
@@ -37,7 +37,7 @@ def _periods(panel: pl.DataFrame, before: tuple[date, date], after: tuple[date, 
 
 def cell_means(panel: pl.DataFrame, y: str = Y, before: tuple[date, date] = BEFORE, after: tuple[date, date] = AFTER,
                treated: str = TREATED_SECTOR) -> pl.DataFrame:
-    """Tableau 2×2 du cours : moyenne de y par groupe × période, variation de chaque ligne et écart traité − contrôles."""
+    """Tableau 2×2 : moyenne de y par groupe et par période, variation de chaque ligne et écart traité − contrôles."""
     m = {(a, p): v for a, p, v in
          _periods(panel, before, after, treated).group_by("treated", "post").agg(pl.col(y).mean()).iter_rows()}
     rows = [("Traité", m[True, False], m[True, True]), ("Contrôles", m[False, False], m[False, True])]
@@ -69,11 +69,7 @@ def twfe(panel: pl.DataFrame, y: str = Y, before: tuple[date, date] = BEFORE, af
 
 
 def readings(panel: pl.DataFrame) -> pl.DataFrame:
-    """Fourchette de l'effet sur la même période après, selon la référence avant.
-
-    Borne haute (anticipation) : sans les lois, le secteur serait resté au niveau du plateau.
-    Borne basse (pénurie de puces) : la hausse de la transition aurait eu lieu sans les lois, elle sert de référence.
-    """
+    """Fourchette de l'effet : borne haute (référence = plateau) et borne basse (référence = transition)."""
     rows = [("Borne haute : anticipation", BEFORE), ("Borne basse : pénurie de puces", TRANSITION)]
     return pl.DataFrame([{"lecture": name, "avant": f"{before[0]:%Y-%m} → {before[1]:%Y-%m}",
                           "delta": did_2x2(panel, before=before), "effet": effect(panel, before=before)}
@@ -81,10 +77,7 @@ def readings(panel: pl.DataFrame) -> pl.DataFrame:
 
 
 def dollars(panel: pl.DataFrame) -> pl.DataFrame:
-    """Effet moyen en Md$ de 2019 par an : dépense observée du traité après le traitement moins observée / exp(δ).
-
-    `spending_real` est en M$ de 2019 en rythme annuel (SAAR) : sa moyenne est une dépense par an, divisée par 1 000.
-    """
+    """Effet moyen en Md$ de 2019 par an : dépense moyenne du traité après (M$ SAAR / 1 000) moins dépense / exp(δ)."""
     spent = panel.filter((pl.col("sector") == TREATED_SECTOR) & pl.col("date").is_between(*AFTER))["spending_real"].mean()
     return readings(panel).select(pl.col("lecture").alias("borne"), "effet",
                                   (spent * (1 - (-pl.col("delta")).exp()) / 1000).alias("md_par_an"))
@@ -92,11 +85,7 @@ def dollars(panel: pl.DataFrame) -> pl.DataFrame:
 
 def event_study(panel: pl.DataFrame, y: str = Y, before: tuple[date, date] = BEFORE, treated: str = TREATED_SECTOR,
                 start: date = date(2015, 1, 1)) -> pl.DataFrame:
-    """β_q : écart traité − contrôles du trimestre q moins l'écart moyen de la fenêtre `before`.
-
-    Chaque β_q est un DiD 2×2 entre `before` et le trimestre q (placebo avant le traitement) ; sur un panel équilibré,
-    c'est le coefficient de la régression d'event study avec effets fixes secteur et mois.
-    """
+    """Event study : écart traité − contrôles par trimestre moins l'écart moyen de `before` (un DiD 2×2 par trimestre)."""
     a = pl.col("sector") == treated
     gap = panel.filter(pl.col("date") >= start).group_by("date").agg((pl.col(y).filter(a).mean() - pl.col(y).filter(~a).mean()).alias("gap"))
     ref = gap.filter(pl.col("date").is_between(*before))["gap"].mean()
@@ -127,10 +116,7 @@ def time_placebos(panel: pl.DataFrame, y: str = Y, before: tuple[date, date] = B
 
 
 def permutation(panel: pl.DataFrame, y: str = Y) -> pl.DataFrame:
-    """Test de Fisher (séance 2, « replay the lottery ») : le traitement est attribué à chaque secteur tour à tour.
-
-    p = part des secteurs dont |δ| atteint celui du vrai traité ; elle ne peut pas descendre sous 1 / nombre de secteurs.
-    """
+    """Test de permutation : δ recalculé en traitant chaque secteur tour à tour, p = part des |δ| ≥ |δ du traité|."""
     deltas = {s: did_2x2(panel, y, treated=s) for s in panel["sector"].unique()}
     true = deltas[TREATED_SECTOR]
     placebo = [d for s, d in deltas.items() if s != TREATED_SECTOR]
