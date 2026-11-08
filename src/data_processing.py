@@ -1,8 +1,8 @@
-"""Chargement et transformations des données du projet IRA / CHIPS Act.
+"""Data loading and transformations for the IRA / CHIPS Act project.
 
-Toutes les fonctions prennent et renvoient des DataFrames polars au format large
-(une colonne date ou trimestre, une colonne par série), sauf mention contraire.
-`python src/data_processing.py` écrit les jeux nettoyés en CSV dans data/processed/.
+Unless stated otherwise, all functions take and return wide polars DataFrames
+(one date or quarter column, one column per series).
+`python src/data_processing.py` writes the cleaned datasets as CSV to data/processed/.
 """
 
 from datetime import date
@@ -16,14 +16,14 @@ RAW, PROCESSED = DATA / "raw", DATA / "processed"
 TREATMENT_DATE = date(2022, 8, 1)
 TREATED_SECTOR = "mfg_computer_electronic_electrical"
 TREATED_COUNTRY = "USA"
-DEFLATOR = "WPUSI012011"  # prix des matériaux de construction
+DEFLATOR = "WPUSI012011"  # construction materials prices
 BASE_YEAR = 2019
 
 
 # --- Helpers ----------------------------------------------------------------
 
 def to_date(df: pl.DataFrame, x: str) -> pl.DataFrame:
-    """Convertit la colonne x en pl.Date (accepte 'YYYY-MM-DD' ou 'YYYY-Qn')."""
+    """Converts column x to pl.Date (accepts 'YYYY-MM-DD' or 'YYYY-Qn')."""
     if df.schema[x] in (pl.Date, pl.Datetime):
         return df.with_columns(pl.col(x).cast(pl.Date))
     s = pl.col(x)
@@ -34,20 +34,20 @@ def to_date(df: pl.DataFrame, x: str) -> pl.DataFrame:
 
 
 def rebase(df: pl.DataFrame, x: str, cols: list[str], year: int = BASE_YEAR) -> pl.DataFrame:
-    """Normalise chaque série en base 100 = moyenne de l'année `year`."""
+    """Rebases each series to 100 = average of year `year`."""
     in_year = pl.col(x).dt.year() == year
     return df.with_columns(pl.col(c) / pl.col(c).filter(in_year).mean() * 100 for c in cols)
 
 
 def mfg_sectors(census: pl.DataFrame) -> list[str]:
-    """Sous-secteurs manufacturiers du Census (colonnes `mfg_*`)."""
+    """Census manufacturing subsectors (`mfg_*` columns)."""
     return [c for c in census.columns if c.startswith("mfg_")]
 
 
-# --- Chargement -------------------------------------------------------------
+# --- Loading ----------------------------------------------------------------
 
 def load_raw() -> dict[str, pl.DataFrame]:
-    """Les cinq fichiers bruts, dates converties en pl.Date."""
+    """The five raw files, dates converted to pl.Date."""
     return {
         "census": pl.read_csv(RAW / "census_private_construction_spending_monthly.csv", try_parse_dates=True),
         "fred": pl.read_csv(RAW / "fred_macro_industry_monthly.csv", try_parse_dates=True),
@@ -58,44 +58,44 @@ def load_raw() -> dict[str, pl.DataFrame]:
 
 
 def overview(raw: dict[str, pl.DataFrame]) -> pl.DataFrame:
-    """Une ligne par fichier : taille, période couverte et part de cellules nulles."""
+    """One row per file: size, period covered and share of null cells."""
     rows = []
     for name, df in raw.items():
         x = next((c for c in ("date", "quarter") if c in df.columns), None)
         rows.append({
-            "fichier": name, "lignes": df.height, "colonnes": df.width,
-            "début": str(df[x].min()) if x else "-", "fin": str(df[x].max()) if x else "-",
-            "% nul": round(df.null_count().sum_horizontal().item() / (df.height * df.width) * 100, 1),
+            "file": name, "rows": df.height, "columns": df.width,
+            "start": str(df[x].min()) if x else "-", "end": str(df[x].max()) if x else "-",
+            "% null": round(df.null_count().sum_horizontal().item() / (df.height * df.width) * 100, 1),
         })
     return pl.DataFrame(rows)
 
 
-# --- Déflation --------------------------------------------------------------
+# --- Deflation --------------------------------------------------------------
 
 def deflator(fred: pl.DataFrame) -> pl.DataFrame:
-    """Indice des prix des matériaux, moyenne `BASE_YEAR` = 1."""
+    """Materials price index, `BASE_YEAR` average = 1."""
     p = pl.col(DEFLATOR)
     return fred.select("date", (p / p.filter(pl.col("date").dt.year() == BASE_YEAR).mean()).alias("deflator"))
 
 
 def real_fred(fred: pl.DataFrame) -> pl.DataFrame:
-    """FRED avec la construction manufacturière en M$ de 2019 (`TLMFGCONS_real`)."""
+    """FRED with manufacturing construction in 2019 $M (`TLMFGCONS_real`)."""
     return fred.join(deflator(fred), on="date") \
         .with_columns((pl.col("TLMFGCONS") / pl.col("deflator")).alias("TLMFGCONS_real"))
 
 
 def real_census(census: pl.DataFrame, fred: pl.DataFrame) -> pl.DataFrame:
-    """Census déflaté (M$ de 2019, SAAR) pour les sous-secteurs manufacturiers, bureaux et commerces."""
+    """Deflated Census (2019 $M, SAAR) for manufacturing subsectors, offices and commercial."""
     cols = [*mfg_sectors(census), "office", "commercial", "manufacturing"]
     return census.join(deflator(fred), on="date") \
         .with_columns(pl.col(c) / pl.col("deflator") for c in cols) \
         .drop("flag", "deflator")
 
 
-# --- DiD entre secteurs -----------------------------------------------------
+# --- Cross-sector DiD -------------------------------------------------------
 
 def did_panel(census_real: pl.DataFrame, treated: str = TREATED_SECTOR) -> pl.DataFrame:
-    """Panel long secteur × mois, en log, avec indicatrices traité / post."""
+    """Long sector × month panel, in logs, with treated / post dummies."""
     return census_real.select("date", *mfg_sectors(census_real), "office", "commercial") \
         .unpivot(index="date", variable_name="sector", value_name="spending_real") \
         .with_columns(
@@ -105,46 +105,46 @@ def did_panel(census_real: pl.DataFrame, treated: str = TREATED_SECTOR) -> pl.Da
         )
 
 
-# --- Synthetic Control entre pays -------------------------------------------
+# --- Cross-country Synthetic Control ---------------------------------------
 
 def oecd_index(oecd: pl.DataFrame) -> pl.DataFrame:
-    """FBCF OCDE en base 100 = 2019 pour chaque pays."""
+    """OECD GFCF rebased to 100 = 2019 for each country."""
     return rebase(oecd, "quarter", [c for c in oecd.columns if c != "quarter"])
 
 
 def donor_fit(oecd_idx: pl.DataFrame, treated: str = TREATED_COUNTRY,
               pre: tuple[date, date] = (date(2015, 1, 1), date(2022, 4, 1)),
               post_start: date = date(2024, 1, 1)) -> pl.DataFrame:
-    """Par donneur : corrélation et RMSE avec le traité sur `pre`, indice moyen à partir de `post_start`."""
+    """Per donor: correlation and RMSE with the treated unit over `pre`, average index from `post_start`."""
     donors = [c for c in oecd_idx.columns if c not in ("quarter", treated)]
     p = oecd_idx.filter(pl.col("quarter").is_between(*pre))
     post = oecd_idx.filter(pl.col("quarter") >= post_start)
     return pl.DataFrame([
-        {"pays": c,
+        {"country": c,
          "corr_pre": p.select(pl.corr(treated, c)).item(),
          "rmse_pre": p.select(((pl.col(treated) - pl.col(c)) ** 2).mean().sqrt()).item(),
-         "indice_post": post[c].mean()}
+         "index_post": post[c].mean()}
         for c in donors
-    ]).sort("corr_pre", descending=True).with_columns(pl.exclude("pays").round(2))
+    ]).sort("corr_pre", descending=True).with_columns(pl.exclude("country").round(2))
 
 
 # --- Clean Investment Monitor -----------------------------------------------
 
 def cim_columns(cim_us: pl.DataFrame, kind: str = "actual") -> list[str]:
-    """Colonnes d'investissement manufacturier par technologie : `kind` = 'actual' ou 'announced'."""
+    """Manufacturing investment columns by technology: `kind` = 'actual' or 'announced'."""
     return [c for c in cim_us.columns if c.startswith(f"mfg_{kind}__")]
 
 
 def cim_totals(cim_us: pl.DataFrame) -> pl.DataFrame:
-    """Investissement manufacturier clean tech total, annoncé et réalisé (Md$ 2024 par trimestre)."""
-    return cim_us.select("quarter", pl.sum_horizontal(cim_columns(cim_us, "announced")).alias("annoncé"),
-                         pl.sum_horizontal(cim_columns(cim_us, "actual")).alias("réalisé"))
+    """Total clean tech manufacturing investment, announced and actual (2024 $bn per quarter)."""
+    return cim_us.select("quarter", pl.sum_horizontal(cim_columns(cim_us, "announced")).alias("announced"),
+                         pl.sum_horizontal(cim_columns(cim_us, "actual")).alias("actual"))
 
 
 # --- Export -----------------------------------------------------------------
 
 def load_processed() -> dict[str, pl.DataFrame]:
-    """Les fichiers écrits par `main()` dans data/processed/, clé = nom du fichier, dates converties en pl.Date."""
+    """Files written by `main()` to data/processed/, key = file name, dates converted to pl.Date."""
     return {p.stem: pl.read_csv(p, try_parse_dates=True) for p in sorted(PROCESSED.glob("*.csv"))}
 
 
@@ -165,7 +165,7 @@ def main() -> None:
     PROCESSED.mkdir(exist_ok=True)
     for name, df in outputs.items():
         df.write_csv(PROCESSED / f"{name}.csv")
-        print(f"{name}.csv : {df.height} lignes")
+        print(f"{name}.csv : {df.height} rows")
 
 
 if __name__ == "__main__":

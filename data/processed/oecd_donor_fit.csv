@@ -1,4 +1,4 @@
-pays,corr_pre,rmse_pre,indice_post
+country,corr_pre,rmse_pre,index_post
 IRL,0.67,10.06,78.07
 ESP,0.55,4.96,112.67
 DEU,0.49,5.6,93.01

@@ -1,137 +1,137 @@
-# Données du projet
+# Project data
 
-Tous les fichiers sont dans `raw/`. Ce sont des données publiques, téléchargées le 26 octobre 2026 et non modifiées (seulement mises en forme en CSV). Les versions nettoyées, produites par `src/data_processing.py`, sont dans `processed/`.
+All files are in `raw/`. They are public data, downloaded on 26 October 2026 and left unmodified (only formatted as CSV). The cleaned versions, produced by `src/data_processing.py`, are in `processed/`.
 
-Date du traitement : août 2022 (CHIPS Act le 9 août, IRA le 16 août).
+Treatment date: August 2022 (CHIPS Act on 9 August, IRA on 16 August).
 
-## Vue d'ensemble
+## Overview
 
-| Fichier | Source | Fréquence | Période | Rôle dans le projet |
+| File | Source | Frequency | Period | Role in the project |
 |---|---|---|---|---|
-| `census_private_construction_spending_monthly.csv` | US Census Bureau | Mensuelle | 2010-01 → 2026-08 | Outcome principal, DiD entre secteurs |
-| `fred_macro_industry_monthly.csv` | FRED (St. Louis Fed) | Mensuelle | 2010-01 → 2026-09 | Déflateur, facteurs de confusion, effets en aval |
-| `oecd_gfcf_other_structures_quarterly.csv` | OCDE | Trimestrielle | 2010-Q1 → 2026-Q2 | Synthetic control, États-Unis et autres pays |
-| `cim_us_clean_investment_quarterly.csv` | Clean Investment Monitor | Trimestrielle | 2018-Q1 → 2026-Q2 | Investissement clean tech par technologie |
-| `cim_state_investment_share_gdp.csv` | Clean Investment Monitor | Coupe transversale | 4 derniers trimestres | Exposition des États |
+| `census_private_construction_spending_monthly.csv` | US Census Bureau | Monthly | 2010-01 → 2026-08 | Main outcome, cross-sector DiD |
+| `fred_macro_industry_monthly.csv` | FRED (St. Louis Fed) | Monthly | 2010-01 → 2026-09 | Deflator, confounders, downstream effects |
+| `oecd_gfcf_other_structures_quarterly.csv` | OECD | Quarterly | 2010-Q1 → 2026-Q2 | Synthetic control, United States and other countries |
+| `cim_us_clean_investment_quarterly.csv` | Clean Investment Monitor | Quarterly | 2018-Q1 → 2026-Q2 | Clean tech investment by technology |
+| `cim_state_investment_share_gdp.csv` | Clean Investment Monitor | Cross-section | Last 4 quarters | State exposure |
 
 ---
 
-## 1. Census : dépenses de construction privée
+## 1. Census: private construction spending
 
 `census_private_construction_spending_monthly.csv`
 
-Le fichier mesure la valeur des travaux de construction privée réalisés chaque mois aux États-Unis (*Value of Construction Put in Place*). Il s'agit de dépenses effectives, pas de projets annoncés.
+The file measures the value of private construction work done each month in the United States (*Value of Construction Put in Place*). These are actual expenditures, not announced projects.
 
-Les montants sont en millions de dollars courants, en taux annuel désaisonnalisé (SAAR). Une valeur de 120 000 signifie qu'au rythme de ce mois, 120 milliards seraient dépensés sur un an.
+Amounts are in millions of current dollars, at a seasonally adjusted annual rate (SAAR). A value of 120,000 means that, at that month's pace, 120 billion would be spent over a year.
 
-Source : fichier `privsatime.xlsx` sur https://www.census.gov/construction/c30/historical_data.html
+Source: `privsatime.xlsx` file at https://www.census.gov/construction/c30/historical_data.html
 
-| Colonne | Description |
+| Column | Description |
 |---|---|
-| `date` | Premier jour du mois |
-| `flag` | `p` = préliminaire, `r` = révisé (les derniers mois peuvent encore bouger) |
-| `nonresidential` | Total de la construction non résidentielle privée |
-| `office`, `data_center` | Bureaux, dont data centers (data centers à partir de 2014) |
-| `commercial`, `warehouse` | Commerce, dont entrepôts |
-| `health_care`, `educational` | Santé, éducation |
-| `power`, `electric` | Énergie, dont électricité |
-| `manufacturing` | Total de la construction manufacturière |
-| `mfg_computer_electronic_electrical` | Secteur traité : usines de semi-conducteurs, d'électronique, de batteries |
-| `mfg_chemical`, `mfg_food_bev_tobacco`, `mfg_plastic_rubber`, `mfg_nonmetallic_mineral`, `mfg_fabricated_metal`, `mfg_transportation_equipment` | Autres sous-secteurs manufacturiers, secteurs de contrôle |
+| `date` | First day of the month |
+| `flag` | `p` = preliminary, `r` = revised (the latest months may still change) |
+| `nonresidential` | Total private non-residential construction |
+| `office`, `data_center` | Offices, of which data centers (data centers from 2014) |
+| `commercial`, `warehouse` | Commercial, of which warehouses |
+| `health_care`, `educational` | Health care, educational |
+| `power`, `electric` | Power, of which electric |
+| `manufacturing` | Total manufacturing construction |
+| `mfg_computer_electronic_electrical` | Treated sector: semiconductor, electronics and battery plants |
+| `mfg_chemical`, `mfg_food_bev_tobacco`, `mfg_plastic_rubber`, `mfg_nonmetallic_mineral`, `mfg_fabricated_metal`, `mfg_transportation_equipment` | Other manufacturing subsectors, control sectors |
 
-Ce fichier sert au DiD, qui compare `mfg_computer_electronic_electrical` aux autres sous-secteurs avant et après août 2022. Les montants étant nominaux et les coûts de construction ayant fortement augmenté en 2021-2022, ils sont déflatés par `WPUSI012011` (fichier FRED) avant l'analyse.
+This file feeds the DiD, which compares `mfg_computer_electronic_electrical` with the other subsectors before and after August 2022. Since amounts are nominal and construction costs rose sharply in 2021-2022, they are deflated by `WPUSI012011` (FRED file) before the analysis.
 
 ---
 
-## 2. FRED : contexte macro et industriel
+## 2. FRED: macro and industry context
 
 `fred_macro_industry_monthly.csv`
 
-Source : https://fred.stlouisfed.org (une colonne par identifiant de série FRED).
+Source: https://fred.stlouisfed.org (one column per FRED series ID).
 
-| Colonne | Description | Unité |
+| Column | Description | Unit |
 |---|---|---|
-| `TTLCONS` | Construction totale (public + privé) | M$, SAAR |
-| `TLNRESCONS` | Construction non résidentielle totale | M$, SAAR |
-| `TLMFGCONS` | Construction manufacturière totale | M$, SAAR |
-| `PRMFGCONS` | Construction manufacturière privée | M$, SAAR |
-| `TLCOMCONS` | Construction commerciale | M$, SAAR |
-| `TLOFCONS` | Construction de bureaux | M$, SAAR |
-| `WPUSI012011` | Indice des prix des matériaux de construction, utilisé comme déflateur | Indice 1982 = 100 |
-| `IPMAN` | Production industrielle manufacturière | Indice 2017 = 100 |
-| `IPG3344S` | Production industrielle de semi-conducteurs | Indice 2017 = 100 |
-| `MANEMP` | Emploi manufacturier total | Milliers |
-| `CES3133400001` | Emploi, computer & electronic products | Milliers |
-| `CES3133440001` | Emploi, semi-conducteurs et composants | Milliers |
-| `CES3133500001` | Emploi, équipement électrique | Milliers |
-| `CES3133600101` | Emploi, automobile et pièces | Milliers |
-| `FEDFUNDS` | Taux directeur de la Fed | % |
-| `GS10` | Taux du Treasury à 10 ans | % |
+| `TTLCONS` | Total construction (public + private) | $M, SAAR |
+| `TLNRESCONS` | Total non-residential construction | $M, SAAR |
+| `TLMFGCONS` | Total manufacturing construction | $M, SAAR |
+| `PRMFGCONS` | Private manufacturing construction | $M, SAAR |
+| `TLCOMCONS` | Commercial construction | $M, SAAR |
+| `TLOFCONS` | Office construction | $M, SAAR |
+| `WPUSI012011` | Construction materials price index, used as deflator | Index 1982 = 100 |
+| `IPMAN` | Manufacturing industrial production | Index 2017 = 100 |
+| `IPG3344S` | Semiconductor industrial production | Index 2017 = 100 |
+| `MANEMP` | Total manufacturing employment | Thousands |
+| `CES3133400001` | Employment, computer & electronic products | Thousands |
+| `CES3133440001` | Employment, semiconductors and components | Thousands |
+| `CES3133500001` | Employment, electrical equipment | Thousands |
+| `CES3133600101` | Employment, motor vehicles and parts | Thousands |
+| `FEDFUNDS` | Fed policy rate | % |
+| `GS10` | 10-year Treasury yield | % |
 
-Ces séries servent à déflater les dépenses de construction (`WPUSI012011`) et à suivre les facteurs de confusion. La hausse des taux de 2022-2023 (`FEDFUNDS`, `GS10`) freine l'investissement au moment même du traitement, ce qui biaise l'effet estimé vers le bas. Elles permettent enfin de voir si l'investissement s'est traduit en production (`IPG3344S`) et en emplois (séries `CES`).
+These series are used to deflate construction spending (`WPUSI012011`) and to track confounders. The 2022-2023 rate hikes (`FEDFUNDS`, `GS10`) slow investment exactly at the time of treatment, which biases the estimated effect downwards. Finally, they show whether investment translated into output (`IPG3344S`) and jobs (`CES` series).
 
 ---
 
-## 3. OCDE : investissement en structures par pays
+## 3. OECD: investment in structures by country
 
 `oecd_gfcf_other_structures_quarterly.csv`
 
-Le fichier mesure la formation brute de capital fixe (FBCF) en « autres bâtiments et ouvrages » (code N112G), c'est-à-dire tout le non résidentiel : usines, bureaux, infrastructures.
+The file measures gross fixed capital formation (GFCF) in "other buildings and structures" (code N112G), i.e. all non-residential: factories, offices, infrastructure.
 
-Les séries sont en volume chaîné (corrigé de l'inflation), désaisonnalisées, en millions de monnaie nationale (dollars, euros, yens, couronnes).
+Series are in chained volumes (adjusted for inflation), seasonally adjusted, in millions of national currency (dollars, euros, yen, kronor).
 
-Source : OECD Quarterly National Accounts (`DSD_NAMAIN1@DF_QNA`), https://data-explorer.oecd.org
+Source: OECD Quarterly National Accounts (`DSD_NAMAIN1@DF_QNA`), https://data-explorer.oecd.org
 
-Le fichier contient une colonne `quarter`, puis une colonne par pays (code ISO) : `USA`, le pays traité, et 20 pays donneurs (`AUS`, `AUT`, `CAN`, `CZE`, `DEU`, `DNK`, `ESP`, `FIN`, `FRA`, `GBR`, `IRL`, `ISR`, `ITA`, `JPN`, `NLD`, `NOR`, `NZL`, `POL`, `PRT`, `SWE`).
+The file contains a `quarter` column, then one column per country (ISO code): `USA`, the treated country, and 20 donor countries (`AUS`, `AUT`, `CAN`, `CZE`, `DEU`, `DNK`, `ESP`, `FIN`, `FRA`, `GBR`, `IRL`, `ISR`, `ITA`, `JPN`, `NLD`, `NOR`, `NZL`, `POL`, `PRT`, `SWE`).
 
-Il sert au synthetic control, qui pondère les pays donneurs pour reproduire la trajectoire américaine avant 2022. Trois précautions s'imposent. Chaque pays doit être normalisé (base 100 = 2019) avant toute comparaison, car les monnaies et les tailles diffèrent. La mesure est plus large que celle du Census, puisqu'elle inclut tout le non résidentiel, et l'effet y sera dilué. Enfin, les donneurs sont eux-mêmes perturbés : l'Europe subit la crise énergétique de 2022 et mène ses propres plans (Chips Act européen).
+It feeds the synthetic control, which weights the donor countries to reproduce the US trajectory before 2022. Three caveats apply. Each country must be rebased (100 = 2019) before any comparison, since currencies and sizes differ. The measure is broader than the Census one, as it includes all non-residential construction, so the effect will be diluted. Finally, the donors are themselves disturbed: Europe faces the 2022 energy crisis and runs its own plans (European Chips Act).
 
 ---
 
-## 4. Clean Investment Monitor : investissement clean tech par technologie
+## 4. Clean Investment Monitor: clean tech investment by technology
 
 `cim_us_clean_investment_quarterly.csv`
 
-Le fichier mesure l'investissement dans les technologies bas carbone aux États-Unis, au niveau national, par segment et par technologie. Les montants sont en milliards de dollars 2024, déjà corrigés de l'inflation.
+The file measures investment in low-carbon technologies in the United States, at the national level, by segment and technology. Amounts are in billions of 2024 dollars, already adjusted for inflation.
 
-Source : Rhodium Group et MIT, https://www.cleaninvestmentmonitor.org/us/database (licence CC BY 4.0). Les valeurs sont extraites des graphiques du tableau de bord public.
+Source: Rhodium Group and MIT, https://www.cleaninvestmentmonitor.org/us/database (CC BY 4.0 licence). Values are extracted from the charts of the public dashboard.
 
-Les colonnes suivent la structure `<groupe>__<technologie>`.
+Columns follow the `<group>__<technology>` structure.
 
-| Préfixe | Signification |
+| Prefix | Meaning |
 |---|---|
-| `total__` | Investissement réalisé total par segment : `manufacturing`, `energy_and_industry`, `retail` |
-| `mfg_actual__` / `mfg_announced__` | Usines clean tech (batteries, solaire, véhicules électriques, minerais critiques, éolien, électrolyseurs), investissement réalisé ou annoncé |
-| `ei_actual__` / `ei_announced__` | Production d'énergie et décarbonation industrielle (solaire, stockage, éolien, hydrogène, capture carbone, carburants d'aviation durables, nucléaire) |
-| `retail__` | Achats des ménages et des entreprises (véhicules électriques, pompes à chaleur, solaire distribué) |
+| `total__` | Total actual investment by segment: `manufacturing`, `energy_and_industry`, `retail` |
+| `mfg_actual__` / `mfg_announced__` | Clean tech factories (batteries, solar, electric vehicles, critical minerals, wind, electrolyzers), actual or announced investment |
+| `ei_actual__` / `ei_announced__` | Energy production and industrial decarbonization (solar, storage, wind, hydrogen, carbon capture, sustainable aviation fuels, nuclear) |
+| `retail__` | Household and business purchases (electric vehicles, heat pumps, distributed solar) |
 
-Une cellule vide signifie qu'il n'y a aucune valeur ce trimestre, `NaN` une valeur non renseignée dans la source.
+An empty cell means there is no value that quarter, `NaN` a value missing from the source.
 
-Ce fichier montre quelles technologies ont capté l'investissement après l'IRA et permet de comparer investissement annoncé et réalisé, l'annonce réagissant plus vite à la loi. Il peut aussi servir de test de robustesse face au Census, mais la période avant traitement est courte (2018-2022).
+This file shows which technologies captured investment after the IRA and allows comparing announced and actual investment, announcements reacting faster to the law. It can also serve as a robustness check against the Census, but the pre-treatment period is short (2018-2022).
 
 ---
 
-## 5. Clean Investment Monitor : exposition des États
+## 5. Clean Investment Monitor: state exposure
 
 `cim_state_investment_share_gdp.csv`
 
-Pour chaque État, le fichier donne l'investissement clean tech des 4 derniers trimestres en % de son PIB, par segment (`retail`, `manufacturing`, `energy_and_industry`).
+For each state, the file gives clean tech investment over the last 4 quarters as a % of its GDP, by segment (`retail`, `manufacturing`, `energy_and_industry`).
 
-C'est une photo à une date, pas une série temporelle. Elle peut mesurer l'intensité du traitement par État, par exemple dans un DiD à traitement continu si l'on ajoute des données d'emploi par État.
+It is a snapshot at one date, not a time series. It can measure treatment intensity by state, for example in a continuous-treatment DiD if state-level employment data are added.
 
 ---
 
-## Articulation des fichiers
+## How the files fit together
 
-| Étape de l'analyse | Fichiers |
+| Analysis step | Files |
 |---|---|
-| 1. Décrire le boom | Census + FRED (`TLMFGCONS`) |
-| 2. DiD entre secteurs | Census, déflaté avec `WPUSI012011` (FRED) |
-| 3. Synthetic control entre pays | OCDE |
-| 4. Technologies concernées | CIM trimestriel |
-| 5. Effets en aval (production, emploi) | FRED |
-| 6. Robustesse (taux, placebos) | FRED + tous les autres fichiers |
+| 1. Describe the boom | Census + FRED (`TLMFGCONS`) |
+| 2. Cross-sector DiD | Census, deflated with `WPUSI012011` (FRED) |
+| 3. Cross-country synthetic control | OECD |
+| 4. Technologies involved | Quarterly CIM |
+| 5. Downstream effects (output, employment) | FRED |
+| 6. Robustness (rates, placebos) | FRED + all other files |
 
-## Non inclus
+## Not included
 
-Le panel État × trimestre × technologie et la base usine par usine du Clean Investment Monitor ne sont disponibles que sur ClimateDeck (Rhodium), avec un compte gratuit. Pour les utiliser, il faut les télécharger manuellement et les déposer dans `raw/`.
+The state × quarter × technology panel and the plant-by-plant database of the Clean Investment Monitor are only available on ClimateDeck (Rhodium), with a free account. To use them, download them manually and place them in `raw/`.

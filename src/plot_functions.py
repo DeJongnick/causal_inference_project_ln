@@ -1,7 +1,7 @@
-"""Fonctions plotly du projet IRA / CHIPS Act.
+"""Plotly functions for the IRA / CHIPS Act project.
 
-Les graphes de l'EDA ramènent les séries à un point par année (`annual`). Chaque fonction prend un DataFrame polars
-et renvoie une go.Figure, avec le même thème (`set_theme`).
+EDA charts reduce each series to one point per year (`annual`). Each function takes a polars DataFrame
+and returns a go.Figure, with the same theme (`set_theme`).
 """
 
 from datetime import date
@@ -13,34 +13,34 @@ from plotly.subplots import make_subplots
 
 from data_processing import TREATMENT_DATE, to_date
 
-TREATED = "#eb6834"  # groupe traité
-CONTROL = "#b8b8b8"  # contrôles
-NEUTRAL = "#1b2a41"  # séries neutres (bleu nuit)
+TREATED = "#eb6834"  # treated group
+CONTROL = "#b8b8b8"  # controls
+NEUTRAL = "#1b2a41"  # neutral series (navy)
 COLORWAY = [NEUTRAL, TREATED, "#2a78d6", "#1baf7a", "#eda100", "#6250d6"]
 INK, MUTED = "#222", "#6b6b6b"
 
-# Libellés lisibles des codes FRED et des colonnes au nom peu parlant
+# Readable labels for FRED codes and cryptic column names
 LABELS = {
     "TLMFGCONS": "Nominal",
-    "TLMFGCONS_real": "Réel (dollars 2019)",
+    "TLMFGCONS_real": "Real (2019 dollars)",
     "FEDFUNDS": "Fed funds (%)",
-    "GS10": "Taux 10 ans (%)",
-    "WPUSI012011": "Prix des matériaux",
-    "IPG3344S": "Production semi-conducteurs",
-    "CES3133440001": "Emploi semi-conducteurs",
-    "mfg_computer_electronic_electrical": "Électronique / électrique",
-    "mfg_food_bev_tobacco": "Agroalimentaire",
-    "mfg_chemical": "Chimie",
-    "mfg_plastic_rubber": "Plastique / caoutchouc",
-    "mfg_nonmetallic_mineral": "Minéraux non métalliques",
-    "mfg_fabricated_metal": "Produits métalliques",
-    "mfg_transportation_equipment": "Équipement de transport",
-    "controls": "Autres sous-secteurs (moyenne)",
+    "GS10": "10-year yield (%)",
+    "WPUSI012011": "Materials prices",
+    "IPG3344S": "Semiconductor output",
+    "CES3133440001": "Semiconductor employment",
+    "mfg_computer_electronic_electrical": "Electronic / electrical",
+    "mfg_food_bev_tobacco": "Food / beverage / tobacco",
+    "mfg_chemical": "Chemical",
+    "mfg_plastic_rubber": "Plastic / rubber",
+    "mfg_nonmetallic_mineral": "Nonmetallic mineral",
+    "mfg_fabricated_metal": "Fabricated metal",
+    "mfg_transportation_equipment": "Transportation equipment",
+    "controls": "Other subsectors (average)",
 }
 
 
 def set_theme() -> None:
-    """Template sobre : fond blanc, grille légère, légende horizontale en haut."""
+    """Plain template: white background, light grid, horizontal legend on top."""
     axis = dict(showgrid=True, gridcolor="#ececec", zeroline=False, linecolor="#9a9a9a", title_standoff=8)
     pio.templates["causal"] = go.layout.Template(layout=dict(
         font=dict(family="Inter, Helvetica, Arial, sans-serif", size=13, color=INK),
@@ -48,42 +48,42 @@ def set_theme() -> None:
         paper_bgcolor="white", plot_bgcolor="white", colorway=COLORWAY,
         xaxis=dict(axis, dtick=1, tickangle=0, showgrid=False), yaxis=axis,
         legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="left", x=0, title_text=""),
-        hovermode="x unified", separators=", ",  # décimale française, espace pour les milliers
+        hovermode="x unified", separators=".,",  # decimal point, comma for thousands
         margin=dict(l=60, r=30, t=120, b=40), height=470,
     ))
     pio.templates.default = "plotly_white+causal"
 
 
 def label(col: str) -> str:
-    """Nom de colonne lisible : 'mfg_chemical' -> 'Chimie', 'FEDFUNDS' -> 'Fed funds (%)'."""
+    """Readable column name: 'mfg_chemical' -> 'Chemical', 'FEDFUNDS' -> 'Fed funds (%)'."""
     return LABELS.get(col, col.replace("_", " ").capitalize() if not col.isupper() else col)
 
 
 def annual(df: pl.DataFrame, x: str, cols: list[str], how: str = "mean", base_year: int | None = None) -> pl.DataFrame:
-    """Un point par année (moyenne ou somme), `partiel` pour une année incomplète, base 100 = `base_year` si donné."""
-    d = to_date(df, x).with_columns(pl.col(x).dt.year().alias("année"))
+    """One point per year (mean or sum), `partial` for an incomplete year, 100 = `base_year` if given."""
+    d = to_date(df, x).with_columns(pl.col(x).dt.year().alias("year"))
     agg = pl.col(cols).mean() if how == "mean" else pl.col(cols).sum()
-    d = d.group_by("année").agg(agg, pl.len().alias("n")).sort("année")
-    d = d.with_columns((pl.col("n") < pl.col("n").max()).alias("partiel")).drop("n")
+    d = d.group_by("year").agg(agg, pl.len().alias("n")).sort("year")
+    d = d.with_columns((pl.col("n") < pl.col("n").max()).alias("partial")).drop("n")
     if how == "sum":
-        d = d.filter(~pl.col("partiel"))
+        d = d.filter(~pl.col("partial"))
     if base_year:
-        d = d.with_columns(pl.col(c) / pl.col(c).filter(pl.col("année") == base_year).first() * 100 for c in cols)
+        d = d.with_columns(pl.col(c) / pl.col(c).filter(pl.col("year") == base_year).first() * 100 for c in cols)
     return d
 
 
 def _line(fig: go.Figure, d: pl.DataFrame, series: str, name: str, color: str, width: float = 2.5,
           dash: str | None = None, **kw) -> None:
-    """Courbe annuelle avec marqueurs ; l'année partielle a un marqueur creux."""
-    symbols = ["circle-open" if p else "circle" for p in d["partiel"]]
-    fig.add_scatter(x=d["année"], y=d[series], name=name, mode="lines+markers",
+    """Annual line with markers; the partial year has a hollow marker."""
+    symbols = ["circle-open" if p else "circle" for p in d["partial"]]
+    fig.add_scatter(x=d["year"], y=d[series], name=name, mode="lines+markers",
                     line=dict(color=color, width=width, dash=dash),
                     marker=dict(size=7, symbol=symbols, color=color, line=dict(color=color, width=1.5)),
                     hovertemplate=f"{name} : %{{y:,.0f}}<extra></extra>", **kw)
 
 
 def _treatment(fig: go.Figure, x=TREATMENT_DATE.year, **ref) -> None:
-    """Trait vertical au traitement (CHIPS / IRA, août 2022) : l'année par défaut, `x=TREATMENT_DATE` sur un axe de dates."""
+    """Vertical line at treatment (CHIPS / IRA, August 2022): the year by default, `x=TREATMENT_DATE` on a date axis."""
     fig.add_vline(x=x, line=dict(color=MUTED, width=1, dash="dot"), **ref)
     if not ref:
         fig.add_annotation(x=x, y=1, yref="paper", text="CHIPS / IRA", showarrow=False,
@@ -98,7 +98,7 @@ def _layout(fig: go.Figure, title: str | None, subtitle: str | None, ytitle: str
 def plot_years(df: pl.DataFrame, x: str, cols: list[str], how: str = "mean", base_year: int | None = None,
                scale: float = 1, title: str | None = None, subtitle: str | None = None,
                ytitle: str | None = None) -> go.Figure:
-    """Une courbe annuelle par série. `scale` divise les valeurs (ex. 1000 pour passer de M$ à Md$)."""
+    """One annual line per series. `scale` divides the values (e.g. 1000 to go from $M to $bn)."""
     d = annual(df, x, cols, how, base_year).with_columns(pl.col(cols) / scale)
     fig = go.Figure()
     for i, c in enumerate(cols):
@@ -110,7 +110,7 @@ def plot_years(df: pl.DataFrame, x: str, cols: list[str], how: str = "mean", bas
 
 def plot_treated_vs_controls(df: pl.DataFrame, x: str, treated: str, controls: list[str], base_year: int = 2019,
                              title: str | None = None, subtitle: str | None = None) -> go.Figure:
-    """Série traitée (orange) contre la moyenne des contrôles (gris), en base 100."""
+    """Treated series (orange) against the controls average (grey), rebased to 100."""
     d = annual(df, x, [treated, *controls], base_year=base_year)
     d = d.with_columns(pl.mean_horizontal(controls).alias("controls"))
     fig = go.Figure()
@@ -123,7 +123,7 @@ def plot_treated_vs_controls(df: pl.DataFrame, x: str, treated: str, controls: l
 def plot_small_multiples(df: pl.DataFrame, x: str, cols: list[str], how: str = "mean", base_year: int | None = None,
                          highlight: str | None = None, ncols: int = 3, title: str | None = None,
                          subtitle: str | None = None) -> go.Figure:
-    """Un petit graphe annuel par série, chacun avec sa propre échelle."""
+    """One small annual chart per series, each with its own scale."""
     d = annual(df, x, cols, how, base_year)
     nrows = -(-len(cols) // ncols)
     fig = make_subplots(rows=nrows, cols=ncols, subplot_titles=[label(c) for c in cols], shared_xaxes=True,
@@ -140,15 +140,15 @@ def plot_small_multiples(df: pl.DataFrame, x: str, cols: list[str], how: str = "
 
 def plot_spaghetti(df: pl.DataFrame, x: str, treated: str = "USA", base_year: int = 2019,
                    title: str | None = None, subtitle: str | None = None) -> go.Figure:
-    """Pays traité en orange, autres pays en gris fin et leur médiane en pointillé, en base 100."""
+    """Treated country in orange, other countries in thin grey and their median dashed, rebased to 100."""
     donors = [c for c in df.columns if c not in (x, treated)]
     d = annual(df, x, [treated, *donors], base_year=base_year)
     d = d.with_columns(pl.concat_list(donors).list.median().alias("median"))
     fig = go.Figure()
     for c in donors:
-        fig.add_scatter(x=d["année"], y=d[c], name=c, mode="lines", line=dict(color=CONTROL, width=1),
+        fig.add_scatter(x=d["year"], y=d[c], name=c, mode="lines", line=dict(color=CONTROL, width=1),
                         opacity=0.6, showlegend=False, hovertemplate=f"{c} : %{{y:.0f}}<extra></extra>")
-    _line(fig, d, "median", "Médiane des autres pays", NEUTRAL, width=2, dash="dash")
+    _line(fig, d, "median", "Median of other countries", NEUTRAL, width=2, dash="dash")
     _line(fig, d, treated, treated, TREATED, width=3)
     _treatment(fig)
     fig.update_layout(hovermode="closest")
@@ -158,7 +158,7 @@ def plot_spaghetti(df: pl.DataFrame, x: str, treated: str = "USA", base_year: in
 def plot_monthly(df: pl.DataFrame, x: str, cols: list[str], start: date, end: date, highlight: str | None = None,
                  scale: float = 1, title: str | None = None, subtitle: str | None = None,
                  ytitle: str | None = None) -> go.Figure:
-    """Séries mensuelles sur [start, end], traitement à août 2022. `highlight` en orange, `controls` en gris."""
+    """Monthly series over [start, end], treatment in August 2022. `highlight` in orange, `controls` in grey."""
     d = to_date(df, x).filter(pl.col(x).is_between(start, end)).sort(x).with_columns(pl.col(cols) / scale)
     fig = go.Figure()
     for i, c in enumerate(cols):
@@ -172,7 +172,7 @@ def plot_monthly(df: pl.DataFrame, x: str, cols: list[str], start: date, end: da
 
 def plot_ranking(df: pl.DataFrame, name: str, value: str, n: int = 15, title: str | None = None,
                  subtitle: str | None = None, xtitle: str | None = None) -> go.Figure:
-    """Top `n` de `value` en barres horizontales, le premier en haut."""
+    """Top `n` of `value` as horizontal bars, the first on top."""
     d = df.sort(value, descending=True).head(n)
     fig = go.Figure(go.Bar(x=d[value], y=d[name], orientation="h", marker_color=NEUTRAL,
                            hovertemplate="%{y} : %{x:.2f}<extra></extra>"))
@@ -184,45 +184,45 @@ def plot_ranking(df: pl.DataFrame, name: str, value: str, n: int = 15, title: st
 
 def plot_event_study(es: pl.DataFrame, ref: tuple[date, date], transition: tuple[date, date], title: str | None = None,
                      subtitle: str | None = None) -> go.Figure:
-    """Event study par trimestre (avant, transition, après), avec bandes grisées pour `ref` et `transition`."""
-    d = es.with_columns(pl.col("date").dt.offset_by("45d").alias("x"))  # point au milieu du trimestre
+    """Event study by quarter (before, transition, after), with shaded bands for `ref` and `transition`."""
+    d = es.with_columns(pl.col("date").dt.offset_by("45d").alias("x"))  # point in the middle of the quarter
     fig = go.Figure()
-    for (x0, x1), text, opacity in [(ref, "Référence", 0.06), (transition, "Transition", 0.12)]:
+    for (x0, x1), text, opacity in [(ref, "Reference", 0.06), (transition, "Transition", 0.12)]:
         fig.add_vrect(x0=x0, x1=pl.Series([x1]).dt.offset_by("1mo")[0], fillcolor=NEUTRAL, opacity=opacity, line_width=0,
                       annotation_text=text, annotation_position="top left", annotation_font=dict(size=11, color=MUTED))
     fig.add_hline(y=0, line=dict(color=MUTED, width=1))
-    periods = [("Avant", pl.col("date") < transition[0], NEUTRAL),
+    periods = [("Before", pl.col("date") < transition[0], NEUTRAL),
                ("Transition", pl.col("date").is_between(transition[0], transition[1], closed="left"), CONTROL),
-               ("Après", pl.col("date") >= transition[1], TREATED)]
+               ("After", pl.col("date") >= transition[1], TREATED)]
     for name, cond, color in periods:
         p = d.filter(cond)
         fig.add_scatter(x=p["x"], y=p["coef"], name=name, mode="markers", marker=dict(color=color, size=8),
-                        customdata=p["trimestre"], hovertemplate="%{customdata} : %{y:.2f}<extra></extra>")
+                        customdata=p["quarter"], hovertemplate="%{customdata} : %{y:.2f}<extra></extra>")
     _treatment(fig, x=TREATMENT_DATE)
     fig.update_xaxes(dtick="M12", tickformat="%Y")
     fig.update_layout(hovermode="closest")
-    return _layout(fig, title, subtitle, "Écart de log vs référence")
+    return _layout(fig, title, subtitle, "Log gap vs reference")
 
 
 def plot_placebos(placebos: pl.DataFrame, true: float, title: str | None = None, subtitle: str | None = None) -> go.Figure:
-    """δ placebo par fausse date (colonnes date, delta) en gris, vrai δ en ligne orange avec la part des placebos ≥ vrai δ."""
+    """Placebo δ by fake date (columns date, delta) in grey, true δ as an orange line with the share of placebos ≥ true δ."""
     above = (placebos["delta"] >= true).sum()
     fig = go.Figure()
     fig.add_hline(y=0, line=dict(color=MUTED, width=1))
     fig.add_scatter(x=placebos["date"], y=placebos["delta"], name="DiD placebo", mode="markers",
                     marker=dict(color=CONTROL, size=7), hovertemplate="%{x|%m/%Y} : %{y:.2f}<extra></extra>")
     fig.add_hline(y=true, line=dict(color=TREATED, width=3), annotation_text=(
-        f"Vrai δ = {true:.2f} · placebos ≥ vrai δ : {above} / {placebos.height}".replace(".", ",")),
+        f"True δ = {true:.2f} · placebos ≥ true δ: {above} / {placebos.height}"),
         annotation_position="top left", annotation_font=dict(color=TREATED, size=12))
-    fig.update_xaxes(dtick="M12", tickformat="%Y", title_text="Fausse date de traitement")
+    fig.update_xaxes(dtick="M12", tickformat="%Y", title_text="Fake treatment date")
     fig.update_layout(hovermode="closest", showlegend=False)
-    return _layout(fig, title, subtitle, "δ (écart de log)")
+    return _layout(fig, title, subtitle, "δ (log gap)")
 
 
 def plot_specs(df: pl.DataFrame, name: str, value: str, highlight: str, pct: bool = True, title: str | None = None,
                subtitle: str | None = None, xtitle: str | None = None) -> go.Figure:
-    """Une barre horizontale par spécification, `highlight` en orange, valeurs en % si `pct`, sinon en unités."""
-    fmt = (lambda v: f"{v:+.0%}".replace("%", " %")) if pct else (lambda v: f"{v:+.1f}".replace(".", ","))
+    """One horizontal bar per specification, `highlight` in orange, values in % if `pct`, otherwise in units."""
+    fmt = (lambda v: f"{v:+.0%}") if pct else (lambda v: f"{v:+.1f}")
     fig = go.Figure(go.Bar(x=df[value], y=df[name], orientation="h",
                            marker_color=[TREATED if c == highlight else CONTROL for c in df[name]],
                            text=[fmt(v) for v in df[value]], textposition="outside",
@@ -237,9 +237,9 @@ def plot_specs(df: pl.DataFrame, name: str, value: str, highlight: str, pct: boo
 
 
 def plot_synth(s: pl.DataFrame, treated: str = "USA", title: str | None = None, subtitle: str | None = None) -> go.Figure:
-    """Traité (orange) et jumeau synthétique (pointillé bleu nuit) par trimestre, colonnes quarter, traité, synthétique."""
+    """Treated unit (orange) and synthetic twin (navy dashed) by quarter, columns quarter, treated, synthetic."""
     fig = go.Figure()
-    for col, name, color, dash in [("synthétique", f"{treated} synthétique", NEUTRAL, "dash"), ("traité", treated, TREATED, None)]:
+    for col, name, color, dash in [("synthetic", f"Synthetic {treated}", NEUTRAL, "dash"), ("treated", treated, TREATED, None)]:
         fig.add_scatter(x=s["quarter"], y=s[col], name=name, mode="lines", line=dict(color=color, width=2.5, dash=dash),
                         hovertemplate=f"{name} : %{{y:.1f}}<extra></extra>")
     _treatment(fig, x=TREATMENT_DATE)
@@ -248,18 +248,18 @@ def plot_synth(s: pl.DataFrame, treated: str = "USA", title: str | None = None, 
 
 
 def plot_gaps(gaps: pl.DataFrame, treated: str = "USA", title: str | None = None, subtitle: str | None = None) -> go.Figure:
-    """Écart traité − synthétique par trimestre : traité en orange, placebos (colonne `pays`, si présente) en gris."""
-    if "pays" not in gaps.columns:
-        gaps = gaps.with_columns(pl.lit(treated).alias("pays"))
+    """Treated − synthetic gap by quarter: treated in orange, placebos (column `country`, if present) in grey."""
+    if "country" not in gaps.columns:
+        gaps = gaps.with_columns(pl.lit(treated).alias("country"))
     fig = go.Figure()
     fig.add_hline(y=0, line=dict(color=MUTED, width=1))
-    for (c,), d in sorted(gaps.group_by("pays"), key=lambda g: g[0][0] == treated):
+    for (c,), d in sorted(gaps.group_by("country"), key=lambda g: g[0][0] == treated):
         t = c == treated
-        fig.add_scatter(x=d["quarter"], y=d["écart"], name=treated if t else "Placebos", mode="lines",
+        fig.add_scatter(x=d["quarter"], y=d["gap"], name=treated if t else "Placebos", mode="lines",
                         line=dict(color=TREATED if t else CONTROL, width=3 if t else 1), opacity=1 if t else 0.7,
-                        legendgroup=c if t else "placebos", showlegend=t or c == gaps["pays"].unique().sort()[0],
+                        legendgroup=c if t else "placebos", showlegend=t or c == gaps["country"].unique().sort()[0],
                         hovertemplate=f"{c} : %{{y:.1f}}<extra></extra>")
     _treatment(fig, x=TREATMENT_DATE)
     fig.update_xaxes(dtick="M12", tickformat="%Y")
     fig.update_layout(hovermode="closest")
-    return _layout(fig, title, subtitle, "Écart (points d'indice)")
+    return _layout(fig, title, subtitle, "Gap (index points)")
