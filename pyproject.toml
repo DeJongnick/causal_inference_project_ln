@@ -16,5 +16,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "ipykernel>=7.4.0",
+    "kaleido>=1.5.1",
     "nbconvert>=7.17.2",
+    "pyyaml>=6.0.3",
 ]
