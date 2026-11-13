@@ -78,6 +78,9 @@ def bn(x, md=False):
 def mn(x):
     return f"${x:,.0f}M"
 
+def ordinal(n):
+    return f"{n}{'th' if 10 <= n % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
+
 def q(d):
     return f"{d.year}-Q{(d.month - 1) // 3 + 1}"
 
@@ -133,9 +136,13 @@ es_q = lambda s: es.filter(pl.col("quarter") == s)["coef"].item()
 plateau = es.filter(pl.col("date").is_between(*did.BEFORE))["coef"]
 dyn = {r["moment"]: r for r in did.dynamics(es).iter_rows(named=True)}
 
-tp = did.time_placebos(MFG)
-tp_max, tp_last = tp["delta"].max(), tp["date"].max()
-tp_above = (tp["delta"] >= delta_up).sum()
+tp = did.time_placebos(MFG)  # windows of the upper bound
+tp_low = did.time_placebos(MFG, before=did.TRANSITION)  # windows of the lower bound
+tp_max, tp_min, tp_last = tp["delta"].max(), tp["delta"].min(), tp["date"].max()
+tp_abs_up, tp_abs_low = ((tp["delta"].abs() >= d).sum() for d in (delta_up, delta_low))
+tpl_max, tpl_min = tp_low["delta"].max(), tp_low["delta"].min()
+tpl_abs = (tp_low["delta"].abs() >= delta_low).sum()
+tpl_above = tp_low.filter(pl.col("delta") >= delta_low)
 perm = did.permutation(MFG).row(0, named=True)
 n_sectors = MFG["sector"].n_unique()
 
@@ -162,6 +169,10 @@ p_all, p_fit = pv["p"]
 n_all, n_fit = pv["countries"]
 usa_rank = pv["usa_rank"][0]
 ahead = ratios.filter(pl.col("rank") < usa_rank)["country"].to_list()
+post_gap = dict(gaps.filter(pl.col("quarter") >= synth.START).group_by("country").agg(pl.col("gap").mean()).iter_rows())
+ahead_down = [c for c in ahead if post_gap[c] < 0]
+positive = ratios.filter(pl.col("country").replace_strict(post_gap) > 0)
+usa_rank_pos = (positive["ratio"] >= positive.filter(pl.col("country") == "USA")["ratio"].item()).sum()
 
 rob_sc = synth.robustness(oecd, data["oecd_donor_fit"])
 rsc = dict(rob_sc.iter_rows())
@@ -171,6 +182,7 @@ NAMES = {"IRL": "Ireland", "JPN": "Japan", "SWE": "Sweden", "CAN": "Canada", "FI
          "ESP": "Spain", "CZE": "Czechia", "ITA": "Italy", "FRA": "France", "AUT": "Austria", "NLD": "the Netherlands"}
 w_list = ", ".join(f"{NAMES[c]} ({v:.2f})" for c, v in w_pos.iter_rows())
 ahead_list = ", ".join(NAMES.get(c, c) for c in ahead)
+ahead_down_list = " and ".join([", ".join(NAMES.get(c, c) for c in ahead_down[:-1]), NAMES.get(ahead_down[-1], ahead_down[-1])])
 ```
 
 ```{=typst}
@@ -276,7 +288,7 @@ The effect is not constant. Measured against the plateau, it reaches `{python} p
 
 ## Inference
 
-With a single treated sector, the usual standard error clustered by sector (`{python} num(tw["se_cluster"], 3)`) is not reliable, so uncertainty is assessed with placebos: the same estimate computed where no effect should exist. In-time placebos apply the same DiD, with the same window lengths, to `{python} tp.height` fake treatment dates between `{python} month(tp["date"].min())` and `{python} month(tp_last)`, before the 2021 rise. The largest of them is `{python} num(tp_max)`, and `{python} "none" if tp_above == 0 else tp_above` of them reach the true $\delta$ (@fig-time-placebos in the appendix). The true $\delta$ exceeds it by `{python} num(delta_up - tp_max)` with the upper bound and by `{python} num(delta_low - tp_max)` with the lower bound. Because consecutive fake dates share most of their months, they are not independent draws, and the count is not a p-value; it shows that a gap of this size never occurred in the sector's recent history. The permutation test assigns the treatment to each of the `{python} n_sectors` sectors in turn. The treated sector has the only positive $\delta$ (placebos from `{python} num(perm["placebo_min"], 3)` to `{python} num(perm["placebo_max"], 3)`), which gives p = `{python} num(perm["p"], 3)`, i.e. 1/`{python} n_sectors`, the smallest value possible with `{python} n_sectors` sectors. A conventional 5% threshold is out of reach by construction.
+With a single treated sector, the usual standard error clustered by sector (`{python} num(tw["se_cluster"], 3)`) is not reliable, so uncertainty is assessed with placebos: the same estimate computed where no effect should exist. In-time placebos apply the same DiD, with the windows of the upper bound (24 months before), to `{python} tp.height` fake treatment dates between `{python} month(tp["date"].min())` and `{python} month(tp_last)`, before the 2021 rise (@fig-time-placebos in the appendix). No placebo reaches a positive gap of this size: the largest is `{python} num(tp_max)`. But the smallest is `{python} num(tp_min)`, and `{python} tp_abs_up` of the `{python} tp.height` placebos have $|\delta|$ at least as large as the upper bound (`{python} tp_abs_low` for the lower bound): the treated sector has already gone through relative movements of comparable size, a trough followed by the 2014 to 2019 catch-up, which limits the weight of an argument based on the size of the effect. With the windows of the lower bound (13 months before), the `{python} tp_low.height` placebos range from `{python} num(tpl_min)` to `{python} num(tpl_max, sign=True)`; `{python} tpl_above.height` of them, at fake dates from `{python} month(tpl_above["date"].min())` to `{python} month(tpl_above["date"].max())`, exceed the lower-bound $\delta$, and `{python} tpl_abs` reach it in absolute value. Because consecutive fake dates share most of their months, they are not independent draws, and these counts are not p-values. The permutation test assigns the treatment to each of the `{python} n_sectors` sectors in turn. The treated sector has the only positive $\delta$ (placebos from `{python} num(perm["placebo_min"], 3)` to `{python} num(perm["placebo_max"], 3)`), which gives p = `{python} num(perm["p"], 3)`, i.e. 1/`{python} n_sectors`, the smallest value possible with `{python} n_sectors` sectors. A conventional 5% threshold is out of reach by construction.
 
 ```{=typst}
 #place.flush()
@@ -298,7 +310,7 @@ show(plot_synth(s), height=340)
 
 ## Inference with placebos in space
 
-Placebos in space treat each donor country in turn as if it had passed the laws, build its own twin from the other donors, and compare the post-treatment divergence with its pre-treatment fit (the ratio of post to pre RMSPE). @fig-placebos shows that several countries diverge from their twin as much as the United States after 2022. The United States ranks `{python} usa_rank`th out of `{python} n_all`, behind `{python} ahead_list`, which gives a rank p-value of `{python} num(p_all, 3)` (the minimum would be 1/`{python} n_all`). Keeping only the `{python} n_fit` countries whose pre-treatment fit is at most twice as poor as that of the United States raises it to `{python} num(p_fit, 3)`. The US gap does not stand out.
+Placebos in space treat each donor country in turn as if it had passed the laws, build its own twin from the other donors, and compare the post-treatment divergence with its pre-treatment fit (the ratio of post to pre RMSPE). @fig-placebos shows that several countries diverge from their twin as much as the United States after 2022. The United States ranks `{python} usa_rank`th out of `{python} n_all`, behind `{python} ahead_list`, which gives a rank p-value of `{python} num(p_all, 3)` (the minimum would be 1/`{python} n_all`). The ratio ignores the sign of the gap: `{python} ahead_down_list` rank ahead of the United States while falling below their twin. Among the `{python} positive.height` countries whose mean gap after treatment is positive, the United States ranks `{python} ordinal(usa_rank_pos)`. Keeping only the `{python} n_fit` countries whose pre-treatment fit is at most twice as poor as that of the United States raises it to `{python} num(p_fit, 3)`. The US gap does not stand out.
 
 ```{python}
 #| label: fig-placebos
@@ -308,7 +320,7 @@ show(plot_gaps(gaps), height=320)
 
 ## Dependence on Ireland
 
-Ireland carries the largest weight (`{python} num(wd["IRL"])`) although its series is very volatile: its correlation with the United States before 2022 is the highest of all donors (`{python} num(fit["corr_pre"])`), but its mean squared deviation is large (`{python} num(fit["rmse_pre"])` points). Removing Ireland from the donors reduces the mean gap from `{python} num(sm["mean_gap"], 1, True)` to `{python} num(rsc["Without IRL"], 1, True)` points, while removing any other donor leaves it between `{python} num(min(others), 1, True)` and `{python} num(max(others), 1, True)`. The country-level result rests on a single donor.
+Ireland is a fragile donor a priori, whatever the result: its national accounts are heavily shaped by the operations of multinational firms, which makes its investment series very volatile. It nevertheless carries the largest weight (`{python} num(wd["IRL"])`): its correlation with the United States before 2022 is the highest of all donors (`{python} num(fit["corr_pre"])`), but its mean squared deviation is large (`{python} num(fit["rmse_pre"])` points). Removing Ireland from the donors reduces the mean gap from `{python} num(sm["mean_gap"], 1, True)` to `{python} num(rsc["Without IRL"], 1, True)` points, while removing any other donor leaves it between `{python} num(min(others), 1, True)` and `{python} num(max(others), 1, True)`. The country-level result rests on a single donor.
 
 # Sensitivity analysis and limitations {#sec-sensitivity}
 
@@ -353,7 +365,7 @@ show(plot_specs(rob_sc.with_columns(pl.col("specification").replace(sc_short)), 
 
 # Conclusion
 
-What can be claimed is that factory construction in the computer, electronic and electrical sector rose far more after August 2022 than in any other manufacturing subsector, by `{python} pct(eff_low)` to `{python} pct(eff_up)`, i.e. `{python} bn(bn_low)` to `{python} bn(bn_up)` per year in 2019 dollars. No comparable gap appears at any earlier date or in any other sector. The size of the effect, rather than a formal test, is the main evidence.
+What can be claimed is that factory construction in the computer, electronic and electrical sector rose far more after August 2022 than in any other manufacturing subsector, by `{python} pct(eff_low)` to `{python} pct(eff_up)`, i.e. `{python} bn(bn_low)` to `{python} bn(bn_up)` per year in 2019 dollars. No other sector shows a positive gap, and no earlier date shows a positive gap of this size with the upper-bound windows; but a few dates do with the lower-bound windows, and the sector has already gone through relative movements of comparable amplitude, downwards then upwards, before 2019. The size of the effect, rather than a formal test, is the main evidence, and it is weaker than it first appears.
 
 What cannot be claimed is that all of this increase is due to the laws. The DiD cannot separate the laws from the chip shortage, which started before them, or from the AI boom, which followed them. At the country level the effect is not distinguishable from the variation seen in other countries, and it depends on a single donor. A broad national aggregate is however a weak test of a policy aimed at one type of plant.
 
@@ -392,6 +404,6 @@ show(plot_ranking(w_pos, "country", "weight", n=w_pos.height, xtitle="Weight"), 
 
 ```{python}
 #| label: fig-time-placebos
-#| fig-cap: "In-time placebos: the same DiD, with the same window lengths, estimated at fake treatment dates, against the true $\\delta$ (orange line)."
+#| fig-cap: "In-time placebos: the same DiD, with the windows of the upper bound, estimated at fake treatment dates, against the true $\\delta$ (orange line)."
 show(plot_placebos(tp, delta_up), height=360)
 ```

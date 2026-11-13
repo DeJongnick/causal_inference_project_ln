@@ -19,4 +19,5 @@ dev = [
     "kaleido>=1.5.1",
     "nbconvert>=7.17.2",
     "pyyaml>=6.0.3",
+    "quarto-cli>=1.11.9",
 ]

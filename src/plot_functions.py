@@ -205,14 +205,12 @@ def plot_event_study(es: pl.DataFrame, ref: tuple[date, date], transition: tuple
 
 
 def plot_placebos(placebos: pl.DataFrame, true: float, title: str | None = None, subtitle: str | None = None) -> go.Figure:
-    """Placebo δ by fake date (columns date, delta) in grey, true δ as an orange line with the share of placebos ≥ true δ."""
-    above = (placebos["delta"] >= true).sum()
+    """Placebo δ by fake date (columns date, delta) in grey, true δ as an orange line."""
     fig = go.Figure()
     fig.add_hline(y=0, line=dict(color=MUTED, width=1))
     fig.add_scatter(x=placebos["date"], y=placebos["delta"], name="DiD placebo", mode="markers",
                     marker=dict(color=CONTROL, size=7), hovertemplate="%{x|%m/%Y} : %{y:.2f}<extra></extra>")
-    fig.add_hline(y=true, line=dict(color=TREATED, width=3), annotation_text=(
-        f"True δ = {true:.2f} · placebos ≥ true δ: {above} / {placebos.height}"),
+    fig.add_hline(y=true, line=dict(color=TREATED, width=3), annotation_text=f"True δ = {true:.2f}",
         annotation_position="top left", annotation_font=dict(color=TREATED, size=12))
     fig.update_xaxes(dtick="M12", tickformat="%Y", title_text="Fake treatment date")
     fig.update_layout(hovermode="closest", showlegend=False)
